@@ -137,6 +137,11 @@
     .bar-fill{height:100%;background:linear-gradient(90deg,#0a5228,var(--gold));border-radius:4px;transition:width .5s;}
     .bar-val{color:#aaa;font-family:var(--mono);font-size:10px;width:20px;text-align:right;}
 
+    /* SCORE INPUTS (modo manual) */
+    .score-input{width:34px;height:34px;border:1px solid var(--ui);border-radius:4px;background:var(--bg);color:#aaa;text-align:center;font-family:var(--mono);font-size:15px;font-weight:700;outline:none;transition:all .15s;}
+    .score-input:focus{border-color:var(--gold);}
+    .score-input.has-v{border-color:var(--gold);color:var(--gold);background:#0d2e13;}
+
     /* ERROR */
     .err{background:rgba(192,57,43,0.1);border:1px solid rgba(192,57,43,0.3);border-radius:8px;padding:14px;margin-bottom:16px;font-size:12px;color:#e74c3c;}
 
@@ -202,12 +207,31 @@ function fl(t){return FLAGS[t]||"🏳️";}
 function nm(t){return NAMES[t]||t;}
 
 // ── STATE ──────────────────────────────────────────────────────────────────
-let matches=[];        // datos API
+let matches=[];
 let activeTab="grupos";
 let activeGroup="Group A";
 let groupSub={};
 let lastUpdate=null;
 let apiError=false;
+let modoManual=false;
+
+// Resultados manuales guardados en localStorage
+let manualScores={};
+try{manualScores=JSON.parse(localStorage.getItem("wc26manual")||"{}");}catch(e){}
+function saveManual(){try{localStorage.setItem("wc26manual",JSON.stringify(manualScores));}catch(e){}}
+
+// Obtener resultado efectivo de un partido (manual o API)
+function getScore(m){
+  if(modoManual){
+    const uid=m.uid||m.team1+"_"+m.team2;
+    const ms=manualScores[uid];
+    if(ms&&ms.home!==""&&ms.away!==""&&ms.home!==undefined&&ms.away!==undefined){
+      return {ft:[parseInt(ms.home),parseInt(ms.away)]};
+    }
+    return null;
+  }
+  return m.score&&m.score.ft&&m.score.ft.length===2 ? m.score : null;
+}
 
 // ── API ────────────────────────────────────────────────────────────────────
 const API_URL="https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json";
@@ -233,7 +257,11 @@ function groupMatches(grp){
 }
 
 function hasScore(m){
-  return m.score && m.score.ft && m.score.ft.length===2;
+  return getScore(m)!==null;
+}
+function getScoreFt(m){
+  const s=getScore(m);
+  return s?s.ft:null;
 }
 
 function calcStandings(grp){
@@ -242,7 +270,7 @@ function calcStandings(grp){
   teams.forEach(tm=>{t[tm]={pts:0,gf:0,ga:0,gd:0,w:0,d:0,l:0,played:0};});
   groupMatches(grp).forEach(m=>{
     if(!hasScore(m))return;
-    const [h,a]=m.score.ft;
+    const [h,a]=getScoreFt(m);
     const ht=m.team1,at=m.team2;
     if(!t[ht]||!t[at])return;
     t[ht].played++;t[at].played++;
@@ -305,12 +333,17 @@ function render(){
       </nav>
     </div>
     <div class="content">
-      <div class="api-badge">
-        <span class="api-dot"></span>
-        ${apiError?"⚠ Sin conexión — últimos datos cargados":"Resultados en tiempo real · openfootball"}
-        ${lastUpdate?`· ${lastUpdate.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}`:""}
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap;">
+        <div class="api-badge">
+          <span class="api-dot" style="background:${modoManual?"#e67e22":"#2ecc71"}"></span>
+          ${modoManual?"✏️ Modo manual — introduces tú los resultados":apiError?"⚠ Sin conexión":"🔄 Auto · openfootball"}
+          ${!modoManual&&lastUpdate?`· ${lastUpdate.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}`:""}
+        </div>
+        <button id="toggle-mode" style="padding:5px 12px;border-radius:6px;border:1px solid ${modoManual?"#e67e22":"var(--gold)"};background:${modoManual?"rgba(230,126,34,0.1)":"var(--goldbg)"};color:${modoManual?"#e67e22":"var(--gold)"};font-size:11px;cursor:pointer;white-space:nowrap;">
+          ${modoManual?"🔄 Cambiar a automático":"✏️ Cambiar a manual"}
+        </button>
       </div>
-      ${apiError?`<div class="err">⚠ No se pudo conectar con la API. Comprueba tu conexión y <a href="#" onclick="location.reload()" style="color:var(--gold)">recarga la página</a>.</div>`:""}
+      ${apiError&&!modoManual?`<div class="err">⚠ No se pudo conectar con la API. <a href="#" onclick="location.reload()" style="color:var(--gold)">Recargar</a></div>`:""}
       ${activeTab==="grupos"?renderGroups():activeTab==="eliminatoria"?renderElim():renderStats()}
     </div>
     <div class="footer">FIFA WORLD CUP 2026 · Resultados actualizados automáticamente</div>
@@ -366,26 +399,36 @@ function renderGroups(){
 
 function renderMatch(m){
   const played=hasScore(m);
-  const [h,a]=played?m.score.ft:[null,null];
+  const ft=played?getScoreFt(m):null;
+  const [h,a]=ft||[null,null];
   const homeW=played&&h>a;
   const awayW=played&&a>h;
   const isPen=played&&m.score.p;
   const scorers1=(m.goals1||[]).map(g=>`${g.name} ${g.minute}'`).join(", ");
   const scorers2=(m.goals2||[]).map(g=>`${g.name} ${g.minute}'`).join(", ");
 
+  const uid=m.uid||m.team1+"_"+m.team2;
+  const ms=manualScores[uid]||{home:"",away:""};
+
   return`
     <div class="match ${played?"played":""}">
       <div class="match-row">
         <span class="team home ${homeW?"win":""}">${nm(m.team1)} ${fl(m.team1)}</span>
         <div class="score-box">
-          ${played
+          ${modoManual?`
+            <input class="score-input ${ms.home!==""?"has-v":""}" type="number" min="0" max="20"
+              placeholder="–" value="${ms.home}" data-uid="${uid}" data-side="home"/>
+            <span class="score-sep">:</span>
+            <input class="score-input ${ms.away!==""?"has-v":""}" type="number" min="0" max="20"
+              placeholder="–" value="${ms.away}" data-uid="${uid}" data-side="away"/>
+          `:played
             ?`<span class="score-disp">${h} <span class="score-sep">:</span> ${a}</span>`
             :`<span class="score-pend">– : –</span>`
           }
         </div>
         <span class="team ${awayW?"win":""}">${fl(m.team2)} ${nm(m.team2)}</span>
       </div>
-      ${played&&(scorers1||scorers2)?`
+      ${!modoManual&&played&&(scorers1||scorers2)?`
         <div class="scorers">
           ${scorers1?`⚽ ${scorers1}`:""}
           ${scorers1&&scorers2?" · ":""}
@@ -395,8 +438,9 @@ function renderMatch(m){
       <div class="match-meta">
         <span>📅 ${fmtDate(m.date)}</span>
         ${m.ground?`<span>📍 ${m.ground}</span>`:""}
-        ${played?`<span class="badge-api">✓ oficial</span>`:""}
-        ${isPen?`<span class="badge-pen">Penaltis ${m.score.p[0]}-${m.score.p[1]}</span>`:""}
+        ${!modoManual&&played?`<span class="badge-api">✓ oficial</span>`:""}
+        ${modoManual&&played?`<span class="badge-pen">✏ manual</span>`:""}
+        ${isPen&&!modoManual?`<span class="badge-pen">Penaltis ${m.score&&m.score.p?m.score.p[0]+"-"+m.score.p[1]:""}</span>`:""}
       </div>
     </div>
   `;
@@ -457,7 +501,8 @@ function renderElim(){
 
 function renderElimCard(m){
   const played=hasScore(m);
-  const [h,a]=played?m.score.ft:[null,null];
+  const ft=played?getScoreFt(m):null;
+  const [h,a]=ft||[null,null];
   const homeW=played&&h>a;
   const awayW=played&&a>h;
   return`
@@ -592,6 +637,24 @@ function bindEvents(){
   document.querySelectorAll("[data-tab]").forEach(b=>b.addEventListener("click",()=>{activeTab=b.dataset.tab;render();}));
   document.querySelectorAll("[data-group]").forEach(b=>b.addEventListener("click",()=>{activeGroup=b.dataset.group;render();scrollActivePill();}));
   document.querySelectorAll("[data-sub]").forEach(b=>b.addEventListener("click",()=>{groupSub[activeGroup]=b.dataset.sub;render();}));
+
+  // Toggle modo manual/auto
+  const tog=document.getElementById("toggle-mode");
+  if(tog) tog.addEventListener("click",()=>{modoManual=!modoManual;render();});
+
+  // Inputs manuales de resultado
+  document.querySelectorAll(".score-input").forEach(inp=>{
+    inp.addEventListener("input",()=>{
+      const {uid,side}=inp.dataset;
+      if(!manualScores[uid]) manualScores[uid]={home:"",away:""};
+      manualScores[uid][side]=inp.value===""?"":Math.max(0,parseInt(inp.value)||0);
+      saveManual();
+      // Actualizar clasificación en tiempo real sin re-render completo
+      const sub=groupSub[activeGroup]||"partidos";
+      if(sub==="clasificación") render();
+    });
+    inp.addEventListener("focus",()=>inp.select());
+  });
 
   // Botones anterior/siguiente
   document.querySelectorAll("[data-dir]").forEach(b=>b.addEventListener("click",()=>changeGroup(parseInt(b.dataset.dir))));
