@@ -525,13 +525,19 @@ function renderStats(){
   const avg=played>0?(totalG/played).toFixed(1):"–";
   const maxG=porGrupo[0]?.g||1;
 
-  // Top goleadores
+  // Top goleadores con equipo
   const goles={};
   matches.forEach(m=>{
-    (m.goals1||[]).forEach(g=>{goles[g.name]=(goles[g.name]||0)+1;});
-    (m.goals2||[]).forEach(g=>{goles[g.name]=(goles[g.name]||0)+1;});
+    (m.goals1||[]).forEach(g=>{
+      if(!goles[g.name]) goles[g.name]={n:0,team:m.team1};
+      goles[g.name].n++;
+    });
+    (m.goals2||[]).forEach(g=>{
+      if(!goles[g.name]) goles[g.name]={n:0,team:m.team2};
+      goles[g.name].n++;
+    });
   });
-  const topScorers=Object.entries(goles).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const topScorers=Object.entries(goles).sort((a,b)=>b[1].n-a[1].n);
 
   return`
     <div class="stats-grid">
@@ -550,15 +556,23 @@ function renderStats(){
     `).join("")}
 
     ${topScorers.length>0?`
-      <div class="rnd-hdr" style="margin-top:24px">⚽ Máximos goleadores</div>
-      ${topScorers.map(([name,n],i)=>`
-        <div class="bar-row">
-          <span style="color:var(--gold);font-family:var(--mono);font-size:11px;width:16px;">${i+1}</span>
-          <span style="flex:1;font-size:12px;color:var(--pale)">${name}</span>
-          <span style="color:var(--gold);font-family:var(--mono);font-size:13px;font-weight:700;">${n}</span>
+      <div class="rnd-hdr" style="margin-top:24px">⚽ Tabla de goleadores</div>
+      <div style="background:rgba(0,0,0,0.3);border-radius:8px;overflow:hidden;margin-bottom:8px;">
+        <div style="display:grid;grid-template-columns:28px 1fr auto auto;font-size:9px;color:var(--txt);padding:6px 12px;border-bottom:1px solid var(--ui);font-family:var(--mono);letter-spacing:1px;gap:8px;">
+          <span>#</span><span>Jugador</span><span>Equipo</span><span style="text-align:center">⚽</span>
         </div>
-      `).join("")}
-    `:""}
+        ${topScorers.map(([name,{n,team}],i)=>`
+          <div style="display:grid;grid-template-columns:28px 1fr auto auto;padding:8px 12px;gap:8px;font-size:12px;border-bottom:1px solid #0d2314;align-items:center;${i===0?"background:rgba(201,168,76,0.08);border-left:3px solid var(--gold)":"border-left:3px solid transparent"}">
+            <span style="color:${i===0?"var(--gold)":"var(--txt)"};font-family:var(--mono);font-size:10px;font-weight:${i===0?700:400}">${i+1}</span>
+            <div>
+              <div style="color:${i===0?"var(--white)":"var(--pale)"};font-weight:${i===0?700:400}">${name}</div>
+            </div>
+            <div style="text-align:right;font-size:11px;color:var(--lt);">${fl(team)} ${nm(team)}</div>
+            <div style="text-align:center;font-family:var(--mono);font-size:15px;font-weight:900;color:var(--gold);min-width:28px;">${n}</div>
+          </div>
+        `).join("")}
+      </div>
+    `:`<div style="color:var(--txt);font-size:12px;padding:20px;text-align:center;font-family:var(--mono)">Sin goles registrados aún</div>`}
   `;
 }
 
